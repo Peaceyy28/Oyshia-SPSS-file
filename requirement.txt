@@ -1,7 +1,0 @@
-streamlit
-pandas
-pyreadstat
-openpyxl
-pymupdf
-pillow
-google-genai
