@@ -18,12 +18,11 @@ st.set_page_config(
 )
 
 st.title("📋 Automated OYSHIA Encounter Form Scanner ➡️ SPSS")
-st.markdown("Upload single or multi-page scanned encounter forms (PDF / Images) to instantly extract patient records and download a native **SPSS (.sav)** file.")
+st.markdown("Upload scanned encounter forms (PDF / Images) to instantly extract patient records and download a native **SPSS (.sav)** file.")
 
 # --- SIDEBAR: Configuration ---
 st.sidebar.header("⚙️ Configuration")
 
-# Get API key from Streamlit secrets (if deployed) or from user sidebar input
 default_key = st.secrets.get("GEMINI_API_KEY", "") if hasattr(st, "secrets") else ""
 api_key = st.sidebar.text_input("Gemini API Key", value=default_key, type="password", help="Get a free API key at https://aistudio.google.com")
 
@@ -59,15 +58,15 @@ TREAT_MAP = {
     "TAB ALBENDAZOLE": 39.0, "COUGH SYRUP": 44.0, "IM PCM": 45.0, "TAB VITAMIN-BCO": 50.0,
     "IM DICLOFENAC": 51.0, "TAB GESTID": 52.0, "TAB AMPICLOX": 55.0, "TAB ORPHENADRINE": 56.0,
     "GENTAMICIN EAR DROP": 61.0, "TAB AMITRIPTYLINE": 62.0, "IV NORMAL SALINE": 66.0,
-    "IM PENTAZOCINE": 67.0, "IV CEFTRIAXONE": 68.0, "TAB METFORMIN": 70.0, "TAB FERROUS": 78.0,
-    "TAB AMOXICLAV": 80.0, "TAB DAONIL": 92.0, "TAB PIRITON": 97.0, "TAB FLUCONAZOLE": 99.0,
-    "TAB DIAZEPAM": 104.0, "IV ARTESUNATE": 107.0, "TAB CIPROFLOXACIN": 140.0, "IM GENTAMICIN": 141.0,
-    "TAB LASIX": 148.0, "TAB PIROXICAM": 149.0, "TAB DOXYCYCLINE": 163.0, "TAB PROPRANOLOL": 164.0,
-    "TAB ALDOMET": 166.0, "TAB LISINOPRIL": 167.0, "TAB MELOXICAM": 168.0, "TAB BUSCOPAN": 169.0,
-    "TAB BROMAZEPAM": 170.0, "EAR DROPS": 171.0, "TAB LOMOTIL": 172.0, "TAB CIMETIDINE": 173.0,
-    "DICLOFENAC GEL": 174.0, "IVF 5% DEXTROSE": 175.0, "TAB AMINOPHYLLINE": 176.0,
-    "TAB CEFUROXIME": 177.0, "IV DEXAMETHASONE": 178.0, "TAB SPIRONOLACTONE": 179.0,
-    "TAB ERYTHROMYCIN": 180.0, "TAB TRANEXAMIC ACID": 182.0, "GASCOL SUSP": 183.0
+    "IM PENTAZOCINE": 67.0, "IV CEFTRIAZONE": 68.0, "IV CEFTRIAXONE": 68.0, "TAB METFORMIN": 70.0,
+    "TAB FERROUS": 78.0, "TAB AMOXICLAV": 80.0, "TAB DAONIL": 92.0, "TAB PIRITON": 97.0,
+    "TAB FLUCONAZOLE": 99.0, "TAB DIAZEPAM": 104.0, "IV ARTESUNATE": 107.0, "TAB CIPROFLOXACIN": 140.0,
+    "IM GENTAMICIN": 141.0, "TAB LASIX": 148.0, "TAB PIROXICAM": 149.0, "TAB DOXYCYCLINE": 163.0,
+    "TAB PROPRANOLOL": 164.0, "TAB ALDOMET": 166.0, "TAB LISINOPRIL": 167.0, "TAB MELOXICAM": 168.0,
+    "TAB BUSCOPAN": 169.0, "TAB BROMAZEPAM": 170.0, "EAR DROPS": 171.0, "TAB LOMOTIL": 172.0,
+    "TAB CIMETIDINE": 173.0, "DICLOFENAC GEL": 174.0, "IVF 5% DEXTROSE": 175.0,
+    "TAB AMINOPHYLLINE": 176.0, "TAB CEFUROXIME": 177.0, "IV DEXAMETHASONE": 178.0,
+    "TAB SPIRONOLACTONE": 179.0, "TAB ERYTHROMYCIN": 180.0, "TAB TRANEXAMIC ACID": 182.0, "GASCOL SUSP": 183.0
 }
 
 # --- HELPER FUNCTIONS ---
@@ -115,8 +114,9 @@ def process_page_with_ai(image, page_num, client):
     image.save(img_byte_arr, format='JPEG', quality=85)
     img_byte_arr = img_byte_arr.getvalue()
     
+    # Using the updated model gemini-3.8-flash
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-3.8-flash',
         contents=[
             types.Part.from_bytes(data=img_byte_arr, mime_type='image/jpeg'),
             prompt
@@ -138,12 +138,13 @@ def match_code(text, lookup_map):
     return None
 
 # --- MAIN WORKFLOW ---
-uploaded_file = st.file_uploader("Upload Scanned Encounter Form (PDF, PNG, JPG)", type=["pdf", "png", "jpg", "jpeg"])
+existing_spss = st.file_uploader("📂 (Optional) Upload Existing SPSS (.sav) File to Append New Records into", type=["sav"])
+
+uploaded_file = st.file_uploader("📸 Upload Scanned Encounter Form (PDF, PNG, JPG)", type=["pdf", "png", "jpg", "jpeg"])
 
 if uploaded_file and api_key:
     client = genai.Client(api_key=api_key)
     
-    # Load images from file
     with st.spinner("Reading file pages..."):
         if uploaded_file.type == "application/pdf":
             pages = extract_images_from_pdf(uploaded_file.read())
@@ -160,7 +161,6 @@ if uploaded_file and api_key:
         completed = 0
         total_pages = len(pages)
         
-        # Parallel Execution
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             future_to_page = {
                 executor.submit(process_page_with_ai, img, idx + 1, client): idx + 1 
@@ -179,10 +179,8 @@ if uploaded_file and api_key:
                 progress_bar.progress(completed / total_pages)
                 status_text.text(f"⚡ Processed {completed} of {total_pages} pages...")
         
-        # Sort results by original page order
         all_results.sort(key=lambda x: x[0])
         
-        # Build DataFrame
         flat_records = []
         for p_num, p_data in all_results:
             header_lga = p_data.get("lga", "OORELOPE")
@@ -191,7 +189,6 @@ if uploaded_file and api_key:
             header_year = float(p_data.get("year", 2025.0))
             
             for pat in p_data.get("patients", []):
-                # Clean phone to 11 chars
                 phone = str(pat.get("phone", "")).replace(" ", "").replace("-", "")[:11]
                 
                 record = {
@@ -207,19 +204,16 @@ if uploaded_file and api_key:
                     "Phone_contact": phone
                 }
                 
-                # Diagnoses 1 to 7
                 diags = pat.get("diagnoses", [])
                 for i in range(1, 8):
                     val = diags[i-1] if i-1 < len(diags) else None
                     record[f"Diagnosis{i}"] = match_code(val, DIAG_MAP)
                 
-                # Investigations 1 to 7
                 invs = pat.get("investigations", [])
                 for i in range(1, 8):
                     val = invs[i-1] if i-1 < len(invs) else None
                     record[f"Investigation{i}"] = match_code(val, INVEST_MAP)
                 
-                # Treatments 1 to 7
                 treats = pat.get("treatments", [])
                 t_cols = ['Treatment1', 'treatment2', 'Treatment3', 'Treatment4', 'Treatment5', 'treatment6', 'Treatment7']
                 for i, col_name in enumerate(t_cols):
@@ -228,9 +222,20 @@ if uploaded_file and api_key:
                 
                 flat_records.append(record)
         
-        df = pd.DataFrame(flat_records)
-        st.session_state["extracted_df"] = df
-        st.success(f"🎉 Successfully extracted **{len(df)} patient encounters** across {total_pages} pages!")
+        new_df = pd.DataFrame(flat_records)
+        
+        # If existing SPSS file was uploaded, append to it!
+        if existing_spss:
+            temp_existing_path = "temp_existing.sav"
+            with open(temp_existing_path, "wb") as f:
+                f.write(existing_spss.getbuffer())
+            existing_df, meta = pyreadstat.read_sav(temp_existing_path)
+            combined_df = pd.concat([existing_df, new_df], ignore_index=True)
+            st.session_state["extracted_df"] = combined_df
+            st.success(f"🎉 Appended {len(new_df)} new records to existing {len(existing_df)} records! (Total: {len(combined_df)})")
+        else:
+            st.session_state["extracted_df"] = new_df
+            st.success(f"🎉 Successfully extracted **{len(new_df)} patient encounters** across {total_pages} pages!")
 
 # --- EDITABLE PREVIEW & DOWNLOAD ---
 if "extracted_df" in st.session_state:
@@ -242,11 +247,7 @@ if "extracted_df" in st.session_state:
     col1, col2 = st.columns(2)
     
     with col1:
-        # Generate Native SPSS .sav File
         sav_buffer = "output_dataset.sav"
-        
-        # Column labels dictionary for SPSS
-        col_labels = {col: col for col in edited_df.columns}
         var_val_labels = {
             "Sex": {1.0: "Male", 2.0: "Female"},
             "Employer": {1.0: "Civil Servant", 2.0: "Non Civil Servant", 3.0: "Missing"},
@@ -272,7 +273,6 @@ if "extracted_df" in st.session_state:
             )
             
     with col2:
-        # Excel fallback
         excel_buffer = io.BytesIO()
         edited_df.to_excel(excel_buffer, index=False)
         st.download_button(
