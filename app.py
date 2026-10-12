@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import fitz  # PyMuPDF
+import pymupdf as fitz
 from PIL import Image
 import io
 import json
